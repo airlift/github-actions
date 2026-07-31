@@ -1,0 +1,6 @@
+- id: check-commit-message
+  name: Check commit message
+  description: Check commit title length, description wrapping, and attribution trailers
+  entry: check-commit-messages/check.py --message-file
+  language: unsupported_script
+  stages: [commit-msg]

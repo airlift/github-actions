@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from check import (
     PROHIBITED_ATTRIBUTION_MARKERS,
+    SCISSORS_LINE_SUFFIX,
+    check_commit_message_file,
     get_attribution_violations,
+    get_comment_prefix,
     get_description_violations,
     get_subject_violations,
+    truncate_commit_scissors,
 )
 
 
@@ -130,6 +138,76 @@ class TestCommitMessages(unittest.TestCase):
         for message in messages:
             with self.subTest(message=message):
                 self.assertEqual(attribution_violating_lines(message), [])
+
+    def test_checks_commit_message_file(self) -> None:
+        with patch("check.get_comment_prefix", return_value="#"):
+            with tempfile.NamedTemporaryFile(
+                mode="w+",
+                encoding="utf-8",
+            ) as message_file:
+                message_file.write(
+                    f"{'x' * 61}\n\n"
+                    "This line is exactly eighty characters long and it should "
+                    "fail as written here.!\n"
+                    "Co-authored-by: Codex <bot@example.com>\n"
+                    "# This comment is intentionally long enough to fail if "
+                    "commit template comments are validated.\n"
+                    "# ------------------------ >8 ------------------------\n"
+                    "This verbose diff line is intentionally long enough to "
+                    "fail if content after the scissors line is validated.\n"
+                )
+                message_file.flush()
+
+                (
+                    subject_violations,
+                    description_violations,
+                    attribution_violations,
+                ) = check_commit_message_file(Path(message_file.name))
+
+        self.assertEqual(
+            [violation.length for violation in subject_violations],
+            [61],
+        )
+        self.assertEqual(
+            [violation.line_number for violation in description_violations],
+            [3],
+        )
+        self.assertEqual(
+            [violation.line_number for violation in attribution_violations],
+            [4],
+        )
+
+    def test_keeps_scissors_line_with_different_comment_prefix(self) -> None:
+        message = (
+            "Add useful check\n\n"
+            f"x{SCISSORS_LINE_SUFFIX}\n"
+            "This content remains part of the commit message.\n"
+        )
+
+        self.assertEqual(truncate_commit_scissors(message, "#"), message)
+
+    def test_reads_configured_comment_prefix(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "core.commentString",
+                "GIT_CONFIG_VALUE_0": "//",
+            },
+        ):
+            self.assertEqual(get_comment_prefix(), "//")
+
+    def test_truncates_scissors_line_with_configured_comment_prefix(self) -> None:
+        message = (
+            "Add useful check\n\n"
+            f"//{SCISSORS_LINE_SUFFIX}\n"
+            "This content is excluded from the commit message.\n"
+        )
+
+        self.assertEqual(
+            truncate_commit_scissors(message, "//"),
+            "Add useful check\n\n",
+        )
 
 
 def commit_message(body: str) -> str:
