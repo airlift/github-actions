@@ -4,7 +4,10 @@ Checks every non-merge commit in a pull request.
 
 ## Policy
 
-- Commit titles should be at most 50 characters and must not exceed 60.
+- Commit titles must not start with a lowercase letter or end with a period.
+  They should be at most 50 characters and must not exceed 60.
+- Commit titles should use imperative mood. Common past-tense leading words are
+  rejected with the corresponding imperative form.
 - Commit descriptions should wrap at 72 characters. Ordinary text must not
   exceed 79 characters.
 - `Assisted-by` and `Co-authored-by` trailers must not credit common AI models
