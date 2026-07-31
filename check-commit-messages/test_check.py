@@ -22,6 +22,110 @@ class TestCommitMessages(unittest.TestCase):
         self.assertSubjectAccepted("X" * 60)
         self.assertSubjectLengthViolation("X" * 61, expected_length=61)
 
+    def test_subject_style(self) -> None:
+        self.assertSubjectAccepted("Add useful check")
+        self.assertSubjectAccepted("123 useful checks")
+        self.assertSubjectStyleViolation(
+            "add useful check",
+            starts_with_lowercase=True,
+        )
+        self.assertSubjectStyleViolation(
+            "Add useful check.",
+            ends_with_period=True,
+        )
+        self.assertSubjectStyleViolation(
+            "add useful check.",
+            starts_with_lowercase=True,
+            ends_with_period=True,
+        )
+
+    def test_rejects_common_past_tense_subject_starts(self) -> None:
+        self.assertSubjectCorrection(
+            "Added commit hook",
+            "Add commit hook",
+        )
+        self.assertSubjectCorrection(
+            "Bumped checkout version",
+            "Bump checkout version",
+        )
+        self.assertSubjectCorrection(
+            "Changed error message",
+            "Change error message",
+        )
+        self.assertSubjectCorrection(
+            "Converted workflow to Python",
+            "Convert workflow to Python",
+        )
+        self.assertSubjectCorrection(
+            "Created release action",
+            "Create release action",
+        )
+        self.assertSubjectCorrection(
+            "Disabled stale checks",
+            "Disable stale checks",
+        )
+        self.assertSubjectCorrection(
+            "Documented local setup",
+            "Document local setup",
+        )
+        self.assertSubjectCorrection(
+            "Enabled grouped updates",
+            "Enable grouped updates",
+        )
+        self.assertSubjectCorrection(
+            "Fixed commit parsing",
+            "Fix commit parsing",
+        )
+        self.assertSubjectCorrection(
+            "Implemented subject validation",
+            "Implement subject validation",
+        )
+        self.assertSubjectCorrection(
+            "Improved error output",
+            "Improve error output",
+        )
+        self.assertSubjectCorrection(
+            "Migrated action inputs",
+            "Migrate action inputs",
+        )
+        self.assertSubjectCorrection(
+            "Moved shared helper",
+            "Move shared helper",
+        )
+        self.assertSubjectCorrection(
+            "Refactored checker output",
+            "Refactor checker output",
+        )
+        self.assertSubjectCorrection(
+            "Removed old hook",
+            "Remove old hook",
+        )
+        self.assertSubjectCorrection(
+            "Renamed workflow job",
+            "Rename workflow job",
+        )
+        self.assertSubjectCorrection(
+            "Replaced local checker",
+            "Replace local checker",
+        )
+        self.assertSubjectCorrection(
+            "Reverted cache change",
+            "Revert cache change",
+        )
+        self.assertSubjectCorrection(
+            "Updated dependency pin",
+            "Update dependency pin",
+        )
+        self.assertSubjectCorrection(
+            "Upgraded Python version",
+            "Upgrade Python version",
+        )
+
+    def test_accepts_other_subject_starts(self) -> None:
+        self.assertSubjectAccepted("Fixes #123")
+        self.assertSubjectAccepted("Adding support")
+        self.assertSubjectAccepted("Fixed-point arithmetic")
+
     def test_description_wrapping(self) -> None:
         self.assertDescriptionAccepted(
             "This line is wrapped.\n"
@@ -203,6 +307,47 @@ class TestCommitMessages(unittest.TestCase):
             [(violation.subject, violation.length) for violation in violations],
             [(subject, expected_length)],
         )
+
+    def assertSubjectStyleViolation(
+        self,
+        subject: str,
+        *,
+        starts_with_lowercase: bool = False,
+        ends_with_period: bool = False,
+    ) -> None:
+        violations = get_subject_violations("abc123", subject)
+        self.assertEqual(
+            [
+                (
+                    violation.subject,
+                    violation.starts_with_lowercase,
+                    violation.ends_with_period,
+                    violation.suggested_imperative,
+                )
+                for violation in violations
+            ],
+            [(subject, starts_with_lowercase, ends_with_period, None)],
+        )
+
+    def assertSubjectCorrection(
+        self,
+        invalid_subject: str,
+        valid_subject: str,
+    ) -> None:
+        violations = get_subject_violations("abc123", invalid_subject)
+        self.assertEqual(
+            [
+                (
+                    violation.subject,
+                    violation.starts_with_lowercase,
+                    violation.ends_with_period,
+                    violation.suggested_imperative,
+                )
+                for violation in violations
+            ],
+            [(invalid_subject, False, False, valid_subject.split(maxsplit=1)[0])],
+        )
+        self.assertSubjectAccepted(valid_subject)
 
     def assertDescriptionAccepted(self, body: str) -> None:
         self.assertEqual(

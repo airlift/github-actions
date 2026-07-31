@@ -1,5 +1,5 @@
 name: Check commit messages
-description: Check commit title length, description wrapping, and attribution trailers
+description: Check commit title style and length, description wrapping, and attribution trailers
 
 inputs:
   base_ref:

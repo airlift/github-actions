@@ -25,6 +25,28 @@ ATTRIBUTION_PATTERN = re.compile(
     r"^(?:Assisted-by|Co-authored-by):\s*\S.*$",
     re.IGNORECASE,
 )
+PAST_TENSE_SUBJECT_STARTS = {
+    "added": "Add",
+    "bumped": "Bump",
+    "changed": "Change",
+    "converted": "Convert",
+    "created": "Create",
+    "disabled": "Disable",
+    "documented": "Document",
+    "enabled": "Enable",
+    "fixed": "Fix",
+    "implemented": "Implement",
+    "improved": "Improve",
+    "migrated": "Migrate",
+    "moved": "Move",
+    "refactored": "Refactor",
+    "removed": "Remove",
+    "renamed": "Rename",
+    "replaced": "Replace",
+    "reverted": "Revert",
+    "updated": "Update",
+    "upgraded": "Upgrade",
+}
 PROHIBITED_ATTRIBUTION_MARKERS = (
     "aider",
     "claude",
@@ -46,6 +68,9 @@ class CommitSubjectViolation:
     commit: str
     subject: str
     length: int
+    starts_with_lowercase: bool
+    ends_with_period: bool
+    suggested_imperative: str | None
 
 
 @dataclass(frozen=True)
@@ -103,14 +128,31 @@ def get_subject_violations(
     commit: str, message: str
 ) -> list[CommitSubjectViolation]:
     lines = message.splitlines()
-    if not lines or len(lines[0]) <= MAX_SUBJECT_LENGTH:
+    if not lines:
+        return []
+
+    subject = lines[0]
+    starts_with_lowercase = subject[:1].islower()
+    ends_with_period = subject.endswith(".")
+    words = subject.split(maxsplit=1)
+    first_word = words[0].rstrip(".,:;").casefold() if words else ""
+    suggested_imperative = PAST_TENSE_SUBJECT_STARTS.get(first_word)
+    if (
+        len(subject) <= MAX_SUBJECT_LENGTH
+        and not starts_with_lowercase
+        and not ends_with_period
+        and suggested_imperative is None
+    ):
         return []
 
     return [
         CommitSubjectViolation(
             commit=commit,
-            subject=lines[0],
-            length=len(lines[0]),
+            subject=subject,
+            length=len(subject),
+            starts_with_lowercase=starts_with_lowercase,
+            ends_with_period=ends_with_period,
+            suggested_imperative=suggested_imperative,
         )
     ]
 
@@ -331,6 +373,15 @@ def print_subject_violations(
     violations: list[CommitSubjectViolation],
 ) -> None:
     print(
+        "Commit subjects must not start with a lowercase letter or end with "
+        "a period.",
+        file=sys.stderr,
+    )
+    print(
+        "Common past-tense leading verbs must use their imperative form.",
+        file=sys.stderr,
+    )
+    print(
         f"Commit subjects should be at most {RECOMMENDED_SUBJECT_LENGTH} "
         f"characters; this check fails subjects over {MAX_SUBJECT_LENGTH} "
         "characters.",
@@ -340,10 +391,20 @@ def print_subject_violations(
 
     for violation in violations:
         print_commit_header(violation.commit, violation.subject)
-        print(
-            f"  subject: {violation.length} characters",
-            file=sys.stderr,
-        )
+        if violation.starts_with_lowercase:
+            print("  subject: starts with a lowercase letter", file=sys.stderr)
+        if violation.ends_with_period:
+            print("  subject: ends with a period", file=sys.stderr)
+        if violation.suggested_imperative is not None:
+            print(
+                f"  subject: use imperative '{violation.suggested_imperative}'",
+                file=sys.stderr,
+            )
+        if violation.length > MAX_SUBJECT_LENGTH:
+            print(
+                f"  subject: {violation.length} characters",
+                file=sys.stderr,
+            )
         print(file=sys.stderr)
 
 
@@ -407,7 +468,7 @@ def format_commit_reference(commit: str) -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Check commit subject length, description wrapping, "
+            "Check commit subject style and length, description wrapping, "
             "and attribution trailers."
         )
     )
@@ -453,14 +514,16 @@ def main() -> int:
 
     if args.message_file is not None:
         print(
-            "Checked commit message; subject and description meet length limits "
-            "and no prohibited attributions were found."
+            "Checked commit message; subject meets style and length "
+            "requirements, description meets length limits, and no prohibited "
+            "attributions were found."
         )
     else:
         noun = "message" if commit_count == 1 else "messages"
         print(
-            f"Checked {commit_count} commit {noun}; subjects and descriptions "
-            "meet length limits and no prohibited attributions were found."
+            f"Checked {commit_count} commit {noun}; subjects meet style and "
+            "length requirements, descriptions meet length limits, and no "
+            "prohibited attributions were found."
         )
     return 0
 
