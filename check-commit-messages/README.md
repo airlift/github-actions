@@ -13,7 +13,7 @@ Checks every non-merge commit in a pull request.
 Long URLs, recognized trailers, quoted text, fenced code blocks, and long
 unwrappable tokens are exempt from description wrapping.
 
-## Usage
+## GitHub Actions usage
 
 The action requires a checkout with complete history:
 
@@ -32,3 +32,27 @@ check-commit-messages:
 ```
 
 Consumers should pin the action to a complete commit SHA.
+
+## Local commit hook
+
+The same checker is available as a
+[`pre-commit`](https://pre-commit.com/) `commit-msg` hook. Add this
+configuration to the consuming repository:
+
+```yaml
+minimum_pre_commit_version: 4.4.0
+repos:
+  - repo: https://github.com/airlift/github-actions
+    rev: <commit-sha>
+    hooks:
+      - id: check-commit-message
+```
+
+Install `pre-commit`, then install the hook in each checkout:
+
+```bash
+pre-commit install --hook-type commit-msg --install-hooks
+```
+
+The hook checks the proposed message before Git creates the commit. Consumers
+should pin the hook to a complete commit SHA.

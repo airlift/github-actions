@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 RECOMMENDED_SUBJECT_LENGTH = 50
 MAX_SUBJECT_LENGTH = 60
@@ -36,6 +37,8 @@ PROHIBITED_ATTRIBUTION_MARKERS = (
     "gpt",
     "windsurf",
 )
+COMMENT_PREFIX_MARKER = "commit-message-check"
+SCISSORS_LINE_SUFFIX = " ------------------------ >8 ------------------------"
 
 
 @dataclass(frozen=True)
@@ -62,11 +65,12 @@ class CommitAttributionViolation:
     line: str
 
 
-def run_git(arguments: list[str]) -> str:
+def run_git(arguments: list[str], input_text: str | None = None) -> str:
     try:
         result = subprocess.run(
             ["git", *arguments],
             check=True,
+            input=input_text,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -221,6 +225,21 @@ def get_attribution_violations(
     return violations
 
 
+def check_commit_message(
+    commit: str,
+    message: str,
+) -> tuple[
+    list[CommitSubjectViolation],
+    list[CommitDescriptionViolation],
+    list[CommitAttributionViolation],
+]:
+    return (
+        get_subject_violations(commit, message),
+        get_description_violations(commit, message),
+        get_attribution_violations(commit, message),
+    )
+
+
 def check_commit_messages(
     revision_range: str,
 ) -> tuple[
@@ -236,9 +255,14 @@ def check_commit_messages(
 
     for commit in commits:
         message = get_commit_message(commit)
-        subject_violations.extend(get_subject_violations(commit, message))
-        description_violations.extend(get_description_violations(commit, message))
-        attribution_violations.extend(get_attribution_violations(commit, message))
+        (
+            commit_subject_violations,
+            commit_description_violations,
+            commit_attribution_violations,
+        ) = check_commit_message(commit, message)
+        subject_violations.extend(commit_subject_violations)
+        description_violations.extend(commit_description_violations)
+        attribution_violations.extend(commit_attribution_violations)
 
     return (
         commits,
@@ -246,6 +270,61 @@ def check_commit_messages(
         description_violations,
         attribution_violations,
     )
+
+
+def check_commit_message_file(
+    message_file: Path,
+) -> tuple[
+    list[CommitSubjectViolation],
+    list[CommitDescriptionViolation],
+    list[CommitAttributionViolation],
+]:
+    try:
+        message = clean_commit_message_file(message_file.read_text())
+    except OSError as exception:
+        print(
+            f"Unable to read commit message file {message_file}: {exception}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exception
+
+    return check_commit_message("commit message", message)
+
+
+def clean_commit_message_file(message: str) -> str:
+    return strip_commit_comments(
+        truncate_commit_scissors(message, get_comment_prefix())
+    )
+
+
+def get_comment_prefix() -> str:
+    commented_marker = run_git(
+        ["stripspace", "--comment-lines"],
+        input_text=f"{COMMENT_PREFIX_MARKER}\n",
+    )
+    marker_suffix = f" {COMMENT_PREFIX_MARKER}\n"
+    if not commented_marker.endswith(marker_suffix):
+        print(
+            "Unable to determine Git's configured comment prefix.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    return commented_marker[: -len(marker_suffix)]
+
+
+def truncate_commit_scissors(message: str, comment_prefix: str) -> str:
+    scissors_line = f"{comment_prefix}{SCISSORS_LINE_SUFFIX}"
+    lines = message.splitlines(keepends=True)
+    for line_number, line in enumerate(lines):
+        if line.rstrip("\r\n") == scissors_line:
+            return "".join(lines[:line_number])
+
+    return message
+
+
+def strip_commit_comments(message: str) -> str:
+    return run_git(["stripspace", "--strip-comments"], input_text=message)
 
 
 def print_subject_violations(
@@ -332,22 +411,36 @@ def parse_args() -> argparse.Namespace:
             "and attribution trailers."
         )
     )
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         "revision_range",
+        nargs="?",
         help="Git revision range to check, such as origin/main..HEAD.",
+    )
+    group.add_argument(
+        "--message-file",
+        type=Path,
+        help="Commit message file to check, as passed to a commit-msg hook.",
     )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    (
-        commits,
-        subject_violations,
-        description_violations,
-        attribution_violations,
-    ) = check_commit_messages(args.revision_range)
-    commit_count = len(commits)
+    if args.message_file is not None:
+        (
+            subject_violations,
+            description_violations,
+            attribution_violations,
+        ) = check_commit_message_file(args.message_file)
+    else:
+        (
+            commits,
+            subject_violations,
+            description_violations,
+            attribution_violations,
+        ) = check_commit_messages(args.revision_range)
+        commit_count = len(commits)
 
     if subject_violations:
         print_subject_violations(subject_violations)
@@ -358,11 +451,17 @@ def main() -> int:
     if subject_violations or description_violations or attribution_violations:
         return 1
 
-    noun = "message" if commit_count == 1 else "messages"
-    print(
-        f"Checked {commit_count} commit {noun}; subjects and descriptions "
-        "meet length limits and no prohibited attributions were found."
-    )
+    if args.message_file is not None:
+        print(
+            "Checked commit message; subject and description meet length limits "
+            "and no prohibited attributions were found."
+        )
+    else:
+        noun = "message" if commit_count == 1 else "messages"
+        print(
+            f"Checked {commit_count} commit {noun}; subjects and descriptions "
+            "meet length limits and no prohibited attributions were found."
+        )
     return 0
 
 
