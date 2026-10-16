@@ -59,6 +59,9 @@ PROHIBITED_ATTRIBUTION_MARKERS = (
     "gpt",
     "windsurf",
 )
+# Subjects git generates for `rebase --autosquash`; a commit-msg hook sees them, a
+# pull request should not, because the rebase folds them away.
+AUTOSQUASH_SUBJECT_PREFIXES = ("fixup! ", "squash! ", "amend! ")
 COMMENT_PREFIX_MARKER = "commit-message-check"
 SCISSORS_LINE_SUFFIX = " ------------------------ >8 ------------------------"
 
@@ -125,13 +128,16 @@ def get_commit_message(commit: str) -> str:
 
 
 def get_subject_violations(
-    commit: str, message: str
+    commit: str, message: str, *, allow_autosquash: bool = False
 ) -> list[CommitSubjectViolation]:
     lines = message.splitlines()
     if not lines:
         return []
 
     subject = lines[0]
+    if allow_autosquash and subject.startswith(AUTOSQUASH_SUBJECT_PREFIXES):
+        return []
+
     starts_with_lowercase = subject[:1].islower()
     ends_with_period = subject.endswith(".")
     words = subject.split(maxsplit=1)
@@ -270,13 +276,15 @@ def get_attribution_violations(
 def check_commit_message(
     commit: str,
     message: str,
+    *,
+    allow_autosquash: bool = False,
 ) -> tuple[
     list[CommitSubjectViolation],
     list[CommitDescriptionViolation],
     list[CommitAttributionViolation],
 ]:
     return (
-        get_subject_violations(commit, message),
+        get_subject_violations(commit, message, allow_autosquash=allow_autosquash),
         get_description_violations(commit, message),
         get_attribution_violations(commit, message),
     )
@@ -330,7 +338,7 @@ def check_commit_message_file(
         )
         raise SystemExit(1) from exception
 
-    return check_commit_message("commit message", message)
+    return check_commit_message("commit message", message, allow_autosquash=True)
 
 
 def clean_commit_message_file(message: str) -> str:
