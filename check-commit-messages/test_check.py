@@ -121,6 +121,42 @@ class TestCommitMessages(unittest.TestCase):
             "Upgrade Python version",
         )
 
+    def test_accepts_autosquash_subjects_in_commit_msg_hook(self) -> None:
+        for subject in (
+            "fixup! add useful check.",
+            "squash! Added commit hook",
+            "amend! " + "X" * 60,
+        ):
+            self.assertEqual(
+                get_subject_violations("abc123", subject, allow_autosquash=True),
+                [],
+            )
+
+    def test_rejects_autosquash_subjects_in_pull_requests(self) -> None:
+        self.assertSubjectStyleViolation(
+            "fixup! add useful check",
+            starts_with_lowercase=True,
+        )
+
+    def test_commit_message_file_accepts_autosquash_subject(self) -> None:
+        with patch("check.get_comment_prefix", return_value="#"):
+            with tempfile.NamedTemporaryFile(
+                mode="w+",
+                encoding="utf-8",
+            ) as message_file:
+                message_file.write("fixup! add useful check\n\nAddress review.\n")
+                message_file.flush()
+
+                (
+                    subject_violations,
+                    description_violations,
+                    attribution_violations,
+                ) = check_commit_message_file(Path(message_file.name))
+
+        self.assertEqual(subject_violations, [])
+        self.assertEqual(description_violations, [])
+        self.assertEqual(attribution_violations, [])
+
     def test_accepts_other_subject_starts(self) -> None:
         self.assertSubjectAccepted("Fixes #123")
         self.assertSubjectAccepted("Adding support")

@@ -8,6 +8,11 @@ Checks every non-merge commit in a pull request.
   They should be at most 50 characters and must not exceed 60.
 - Commit titles should use imperative mood. Common past-tense leading words are
   rejected with the corresponding imperative form.
+- When run as a commit-msg hook, titles that git generates for
+  `rebase --autosquash` (`fixup!`, `squash!`, and `amend!`) are exempt from the
+  title checks, since the rebase discards them. Their descriptions and trailers
+  are still checked, and pull request validation still rejects such titles so
+  an unsquashed fixup cannot be merged.
 - Commit descriptions should wrap at 72 characters. Ordinary text must not
   exceed 79 characters.
 - `Assisted-by` and `Co-authored-by` trailers must not credit common AI models
